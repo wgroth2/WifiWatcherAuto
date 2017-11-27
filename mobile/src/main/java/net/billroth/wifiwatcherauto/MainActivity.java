@@ -12,6 +12,7 @@ import android.location.LocationManager;
 import android.location.LocationProvider;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.design.widget.FloatingActionButton;
@@ -25,8 +26,22 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.TextView;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements LocationListener {
 
@@ -44,21 +59,138 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private boolean locationValid = false;
 
     //
+    // http://blog.appliedinformaticsinc.com/sending-json-data-to-server-using-async-thread/
+    //
+
+    //add background inline class here
+    private class SendJsonDataToServer extends AsyncTask<String, String, String> {
+        @Override
+        protected String doInBackground(String... params) {
+            String JsonResponse;
+            String JsonDATA = params[0];
+
+            HttpURLConnection urlConnection = null;
+            BufferedReader reader = null;
+            try {
+                // Consider making a string.
+                URL url = null;
+                try {
+                    url = new URL("http://billroth.net/json/test.php");
+                } catch (MalformedURLException e) {
+                    e.printStackTrace();
+                }
+
+                try {
+                    if (url != null) {
+                        urlConnection = (HttpURLConnection) url.openConnection();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    return null;
+                }
+                urlConnection.setDoOutput(true);
+                // is output buffer writter
+                urlConnection.setRequestMethod("POST");
+                urlConnection.setRequestProperty("Content-Type", "application/json");
+                urlConnection.setRequestProperty("Accept", "application/json");
+                //set headers and method
+                Writer writer = new BufferedWriter(new OutputStreamWriter(urlConnection.getOutputStream(), "UTF-8"));
+                writer.write(JsonDATA);
+                // json data
+                writer.close();
+                InputStream inputStream = urlConnection.getInputStream();
+                //input stream
+                StringBuffer buffer = new StringBuffer();
+                if (inputStream == null) {
+                    // Nothing to do.
+                    return null;
+                }
+                reader = new BufferedReader(new InputStreamReader(inputStream));
+
+                //
+                // Read results
+                //
+                String inputLine;
+                while ((inputLine = reader.readLine()) != null)
+                    buffer.append(inputLine + "\n");
+                if (buffer.length() == 0) {
+                    // Stream was empty. No point in parsing.
+                    return null;
+                }
+                JsonResponse = buffer.toString();
+
+                //response data
+                Log.i(appName,JsonResponse);
+
+                //send to post execute
+                return JsonResponse;
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            finally {
+                if (urlConnection != null) {
+                    urlConnection.disconnect();
+                }
+                if (reader != null) {
+                    try {
+                        reader.close();
+                    } catch (final IOException e) {
+                        Log.e(appName, "Error closing stream", e);
+                    }
+                }
+            }
+            return null;
+        }
+
+        @Override
+        protected void onPostExecute(String s) {
+        }
+
+    }
+    //
+    // TODO Finish send inclde async methods
+    // http://blog.appliedinformaticsinc.com/sending-json-data-to-server-using-async-thread/
+    //
+    private void sendJSON(double longitude, double lat, double alt, String SSID) {
+        String sLong, sLat, sAlt;
+        sLong = (Double.valueOf(longitude)).toString();
+        sLat = (Double.valueOf(lat)).toString();
+        sAlt = (Double.valueOf(alt)).toString();
+
+        JSONObject js = new JSONObject();
+        try {
+            js.put("longitude", sLong);
+            js.put("latitude", sLat);
+            js.put("altitude", sAlt);
+            js.put("SSID", SSID);
+        } catch (JSONException e) {
+            e.printStackTrace();
+            return;
+        }
+            if (js.length() > 0) {
+                new SendJsonDataToServer().execute(String.valueOf(js));
+            }
+        }
+    //
     // TODO: send JSON to server here.
     // Send info to server/queue on when/where/SSID
     //
     private void recordLocation() {
 
-        if(latestAltitude == lastAlt && latestLatitude == lastLat && latestLongitude == lastLong && lastSSID == currentSSID) { // if its the same as the last one, do nothing
-            // do nothing
+        if(latestAltitude == lastAlt && latestLatitude == lastLat && latestLongitude == lastLong && lastSSID.equals(currentSSID)) { // if its the same as the last one, do nothing
+            int x=0;
+            x++;
         } else {
             // excellent example: http://hmkcode.com/android-send-json-data-to-server/
-            SimpleDateFormat s = new SimpleDateFormat("MM/dd/yyyy hh:mm:ss");
+            SimpleDateFormat s = new SimpleDateFormat("MM/dd/yyyy hh:mm:ss", Locale.US);
             String date_format = s.format(new Date());
             String msg = "Record location: Long: " + latestLongitude + " Lat: " + latestLatitude + " Alt: " + latestAltitude + " current SSID: " + currentSSID + " @ " + date_format;
 
+            Log.d(appName, "Before send: " + msg);
+            sendJSON(latestLongitude, latestLatitude, latestAltitude, currentSSID);
             setStatus(msg);
-            Log.d(appName, msg);
+            Log.d(appName, "After send " + msg);
             lastAlt = latestAltitude;
             lastLong = latestLongitude;
             lastLat = latestLatitude;
@@ -101,7 +233,9 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     private NetworkInfo getNetworkInfo(Context context) {
         ConnectivityManager connManager = (ConnectivityManager)
                 context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        return connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+        if (connManager != null) {
+            return connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+        }else return null;
     }
 
     //
@@ -115,7 +249,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        Toolbar toolbar =  findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         appName = getResources().getString(R.string.log_app_name);
 
@@ -124,7 +258,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         //
         minGPSScanTime = setUpSpinner();
 
-        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
+        FloatingActionButton fab = findViewById(R.id.fab);
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -136,7 +270,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
         // todo: figure out preferences
         //
         PreferenceManager.setDefaultValues(this, R.xml.pref_data_sync, false);
-        /********** get Gps location service LocationManager object ***********/
+        // ********** get Gps location service LocationManager object ***********/
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
 
@@ -219,7 +353,6 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     @Override
     public void onStatusChanged(String provider, int status, Bundle extras) {
         int i = Log.d(appName,"Status changed, status = " + status);
-        return;
     }
 
     /**
@@ -287,10 +420,7 @@ public class MainActivity extends AppCompatActivity implements LocationListener 
     protected void onDestroy() {
         super.onDestroy();  // Always call the superclass method first
     }
-    //
-    // Menu stuff
-    // TODO: Set up settings menu
-    //
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.
